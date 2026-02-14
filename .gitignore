@@ -18,3 +18,14 @@ __pycache__/
 *.pth
 *.pt
 *.ckpt
+
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Python environment files
+*.egg-info/
+pip-wheel-metadata/
