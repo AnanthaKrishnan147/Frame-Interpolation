@@ -1,0 +1,20 @@
+# Ignore images
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.gif
+
+# Ignore datasets
+dataset/
+data/
+images/
+
+# Ignore python junk
+__pycache__/
+*.pyc
+
+# Ignore checkpoints
+*.pth
+*.pt
+*.ckpt
