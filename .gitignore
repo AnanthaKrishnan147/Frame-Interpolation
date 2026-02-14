@@ -25,6 +25,8 @@ venv/
 .venv/
 env/
 ENV/
+my_environment/
+.my_environment/
 
 # Python environment files
 *.egg-info/
