@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 font-sans antialiased transition-colors duration-300;
+  }
+  .dark body {
+    @apply bg-[#0a0a0e] text-white;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-white/60 dark:bg-white/5 backdrop-blur-md border border-slate-200 dark:border-white/10 rounded-xl shadow-sm dark:shadow-none;
+  }
+  
+  .glass-panel-dark {
+    @apply bg-slate-100/80 dark:bg-black/40 backdrop-blur-md border border-slate-200 dark:border-white/5 rounded-xl;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-purple-blue text-white px-4 py-2 rounded-lg font-medium transition-all hover:scale-105 hover:shadow-neon-purple active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply bg-slate-200 dark:bg-white/5 text-slate-700 dark:text-white/80 px-4 py-2 rounded-lg font-medium transition-all hover:bg-slate-300 dark:hover:bg-white/10 active:scale-95;
+  }
+
+  .upload-card {
+    @apply border-2 border-dashed border-slate-300 dark:border-white/10 bg-slate-50 dark:bg-white/5 rounded-xl p-6 transition-all cursor-pointer hover:border-neon-purple dark:hover:border-neon-purple hover:bg-neon-purple/5;
+  }
+
+  .upload-card-active {
+    @apply border-neon-purple bg-neon-purple/5 dark:bg-neon-purple/10 shadow-neon-purple;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-300 dark:bg-white/10 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-slate-400 dark:bg-white/20;
+}
+
+/* Canvas Grid */
+.canvas-grid {
+  background-image: radial-gradient(circle, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.dark .canvas-grid {
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+}

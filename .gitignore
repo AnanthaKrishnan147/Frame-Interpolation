@@ -1,0 +1,63 @@
+# Environments and Dependencies
+dataset/
+my_env/
+ui/.venv/
+ui/back_end/myenv/
+ui/back_end/temp/
+ui/front_end/node_modules/
+node_modules/
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# UI / Frontend
+ui/front_end/dist/
+ui/front_end/dist-ssr/
+ui/front_end/.vscode/
+dist/
+dist-ssr/
+
+# IDEs and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Project Specific
+ui/back_end/fusion_model.pth
+*.log
+lint_output.txt
+lint_output_utf8.txt
+vc_redist.x64.exe

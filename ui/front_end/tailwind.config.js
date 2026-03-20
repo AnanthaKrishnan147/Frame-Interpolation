@@ -4,6 +4,7 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -11,6 +12,9 @@ export default {
         'slate-gray': '#1e1e24',
         'neon-purple': '#8c52ff',
         'neon-blue': '#5271ff',
+      },
+      animation: {
+        'spin-slow': 'spin 3s linear infinite',
       },
       backgroundImage: {
         'gradient-purple-blue': 'linear-gradient(90deg, #8c52ff, #5271ff)',
