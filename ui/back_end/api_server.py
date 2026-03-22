@@ -27,8 +27,7 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 @app.post("/interpolate")
 async def interpolate_frames(
     frameA: UploadFile = File(...), 
-    frameB: UploadFile = File(...),
-    targetFps: int = Form(24)
+    frameB: UploadFile = File(...)
 ):
     # Save the uploaded files temporarily
     path_a = os.path.join(TEMP_DIR, frameA.filename)
@@ -39,32 +38,19 @@ async def interpolate_frames(
     with open(path_b, "wb") as buffer:
         shutil.copyfileobj(frameB.file, buffer)
 
-    # Call the logic
-    # Default original FPS is usually 12 in the frontend (though user might set to 24)
-    # Based on prompt, if fps=24, generate frames. Assuming `num_frames_to_generate` = targetFps / 12 - 1 roughly.
-    # But since prompt said `fps=2 -> 1, fps=4 -> 3`, we can just pass the targetFps down.
-    # The pipeline now treats it as generate `targetFps - 1` frames, or `fps` frames.
-    # To keep it simple, we pass it down.
     from frame_interpolation_pipeline import generate_intermediate_frame
     
-    # We renamed generate_intermediate_frame to return a list
-    result_images = generate_intermediate_frame(path_a, path_b, fps=targetFps)
+    # Generate the single intermediate frame
+    result_img = generate_intermediate_frame(path_a, path_b)
     
-    if not result_images:
-        return {"error": "Failed to generate intermediate frames."}
+    if result_img is None:
+        return {"error": "Failed to generate intermediate frame."}
 
-    import zipfile
-    
-    zip_path = os.path.join(TEMP_DIR, "output.zip")
-    with zipfile.ZipFile(zip_path, 'w') as zipf:
-        for i, img in enumerate(result_images):
-            img_filename = f"frame_{i:03d}.png"
-            img_path = os.path.join(TEMP_DIR, img_filename)
-            cv2.imwrite(img_path, img)
-            zipf.write(img_path, arcname=img_filename)
+    # Save and return as a single PNG
+    output_path = os.path.join(TEMP_DIR, "output.png")
+    cv2.imwrite(output_path, result_img)
 
-    # Return the generated zip
-    return FileResponse(zip_path, media_type="application/zip")
+    return FileResponse(output_path, media_type="image/png")
 
 if __name__ == "__main__":
     uvicorn.run("api_server:app", host="0.0.0.0", port=5000, reload=True, reload_dirs=[os.path.dirname(os.path.abspath(__file__))])

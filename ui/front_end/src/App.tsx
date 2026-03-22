@@ -16,8 +16,6 @@ function App() {
   const [keyframe2, setKeyframe2] = useState<string | null>(null);
   const [keyframe2Name, setKeyframe2Name] = useState<string | null>(null);
   const [targetFps, setTargetFps] = useState(24);
-  const [motionSmoothness, setMotionSmoothness] = useState(50);
-  const [aiMotionRefinement, setAiMotionRefinement] = useState(true);
   const [aiStatus, setAiStatus] = useState<AIStatus>('Idle');
   const [isGenerating, setIsGenerating] = useState(false);
   const [frames, setFrames] = useState<Frame[]>([]);
@@ -26,8 +24,6 @@ function App() {
   const [isLooping, setIsLooping] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [zoom, setZoom] = useState(100);
-  const [showComparison, setShowComparison] = useState(false);
-  const [onionSkinEnabled, setOnionSkinEnabled] = useState(false);
 
   // Advanced Timeline State
   const [timelineZoom, setTimelineZoom] = useState(100);
@@ -110,8 +106,22 @@ function App() {
     setCurrentFrameIndex(0);
     setIsPlaying(false);
     setAiStatus('Idle');
-    setShowComparison(false);
-    setOnionSkinEnabled(false);
+  };
+
+  const interpolateTwoFrames = async (blobA: Blob, blobB: Blob): Promise<Blob> => {
+    const formData = new FormData();
+    formData.append("frameA", blobA, "frameA.png");
+    formData.append("frameB", blobB, "frameB.png");
+    
+    const response = await fetch("http://localhost:5000/interpolate", {
+      method: "POST",
+      body: formData
+    });
+    
+    if (!response.ok) {
+        throw new Error("Failed to generate intermediate frame.");
+    }
+    return await response.blob();
   };
 
   const generateFrames = async () => {
@@ -126,44 +136,28 @@ function App() {
       const blob1 = await fetch(keyframe1).then(r => r.blob());
       const blob2 = await fetch(keyframe2).then(r => r.blob());
 
-      const formData = new FormData();
-      formData.append("frameA", blob1, keyframe1Name || "frameA.png");
-      formData.append("frameB", blob2, keyframe2Name || "frameB.png");
-      formData.append("targetFps", targetFps.toString());
+      // Determine recursion depth based on targetFps
+      // Assuming base is 12fps: 24fps -> 1 depth (1 frame), 48fps -> 2 depth (3 frames)
+      let depth = 1;
+      if (targetFps >= 48) depth = 2; // 4x
+      if (targetFps >= 96) depth = 3; // 8x
 
-      const response = await fetch("http://localhost:5000/interpolate", {
-        method: "POST",
-        body: formData
-      });
+      // Recursive generation helper
+      const generateRecursive = async (b1: Blob, b2: Blob, currentDepth: number): Promise<Blob[]> => {
+          if (currentDepth === 0) return [];
+          const mid = await interpolateTwoFrames(b1, b2);
+          const left = await generateRecursive(b1, mid, currentDepth - 1);
+          const right = await generateRecursive(mid, b2, currentDepth - 1);
+          return [...left, mid, ...right];
+      };
 
-      if (!response.ok) {
-        throw new Error("Failed to generate intermediate frames.");
-      }
-
-      // Read response as ArrayBuffer (zip file)
-      const arrayBuffer = await response.arrayBuffer();
-
-      // Load JSZip dynamically to avoid breaking initial imports
-      const JSZip = (await import('jszip')).default;
-      const zip = await JSZip.loadAsync(arrayBuffer);
-
-      const generated: Frame[] = [];
-      let i = 1;
-
-      // Sort files alphabetically to ensure correct order
-      const files = Object.keys(zip.files).sort();
-
-      for (const filename of files) {
-        if (!filename.endsWith('/')) { // Only process files, not directories
-          const fileData = await zip.files[filename].async("blob");
-          const generatedUrl = URL.createObjectURL(fileData);
-          generated.push({
-            id: `ai-${i++}`,
-            url: generatedUrl,
-            isKeyframe: false
-          });
-        }
-      }
+      const generatedBlobs = await generateRecursive(blob1, blob2, depth);
+      
+      const generated: Frame[] = generatedBlobs.map((b, i) => ({
+          id: `ai-${i+1}`,
+          url: URL.createObjectURL(b),
+          isKeyframe: false
+      }));
 
       const allFrames: Frame[] = [
         { id: 'kf1', url: keyframe1, isKeyframe: true },
@@ -266,10 +260,6 @@ function App() {
               <InterpolationSettings
                 targetFps={targetFps}
                 setTargetFps={setTargetFps}
-                motionSmoothness={motionSmoothness}
-                setMotionSmoothness={setMotionSmoothness}
-                aiMotionRefinement={aiMotionRefinement}
-                setAiMotionRefinement={setAiMotionRefinement}
               />
             </div>
 
@@ -328,29 +318,6 @@ function App() {
                     </span>
                   </div>
 
-                  {/* Comparison Toggle */}
-                  <button
-                    onClick={() => setShowComparison(!showComparison)}
-                    className={`px-4 py-2 rounded-lg border text-xs font-bold transition-all shadow-lg flex items-center space-x-2 ${showComparison
-                      ? 'bg-neon-purple/10 dark:bg-neon-purple/20 border-neon-purple text-neon-purple shadow-[0_0_15px_rgba(140,82,255,0.2)]'
-                      : 'bg-white/80 dark:bg-black/60 backdrop-blur-md border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
-                      }`}
-                  >
-                    <Columns size={14} />
-                    <span>Compare Mode</span>
-                  </button>
-
-                  {/* Onion Skin Toggle */}
-                  <button
-                    onClick={() => setOnionSkinEnabled(!onionSkinEnabled)}
-                    className={`px-4 py-2 rounded-lg border text-xs font-bold transition-all shadow-lg flex items-center space-x-2 ${onionSkinEnabled
-                      ? 'bg-neon-blue/10 dark:bg-neon-blue/20 border-neon-blue text-neon-blue shadow-[0_0_15px_rgba(82,113,255,0.2)]'
-                      : 'bg-white/80 dark:bg-black/60 backdrop-blur-md border-slate-200 dark:border-white/10 text-slate-600 dark:text-white/70 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/5'
-                      }`}
-                  >
-                    <div className="w-3 h-3 rounded-full border-2 border-current opacity-70" />
-                    <span>Onion Skin</span>
-                  </button>
                 </div>
               </div>
             )}
@@ -365,8 +332,6 @@ function App() {
                 playbackSpeed={playbackSpeed}
                 zoom={zoom}
                 isGenerating={isGenerating}
-                showComparison={showComparison}
-                onionSkinEnabled={onionSkinEnabled}
               />
             </div>
 

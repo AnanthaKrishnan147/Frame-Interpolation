@@ -31,6 +31,43 @@ class Config:
     
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+# --- Model Definition ---
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "fusion_model.pth")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+class FusionNet(nn.Module):
+    def __init__(self):
+        super(FusionNet, self).__init__()
+        self.enc1 = nn.Sequential(nn.Conv2d(6, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True))
+        self.enc2 = nn.Sequential(nn.Conv2d(32, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.enc3 = nn.Sequential(nn.Conv2d(64, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True))
+        self.bottle = nn.Sequential(nn.Conv2d(128, 128, 3, padding=1), nn.BatchNorm2d(128), nn.ReLU(inplace=True))
+        self.up3 = nn.ConvTranspose2d(128, 64, 4, stride=2, padding=1)
+        self.dec3 = nn.Sequential(nn.Conv2d(128, 64, 3, padding=1), nn.BatchNorm2d(64), nn.ReLU(inplace=True))
+        self.up2 = nn.ConvTranspose2d(64, 32, 4, stride=2, padding=1)
+        self.dec2 = nn.Sequential(nn.Conv2d(64, 32, 3, padding=1), nn.BatchNorm2d(32), nn.ReLU(inplace=True))
+        self.final = nn.Conv2d(32, 3, 3, padding=1)
+
+    def forward(self, x):
+        e1 = self.enc1(x)
+        e2 = self.enc2(F.max_pool2d(e1, 2))
+        e3 = self.enc3(F.max_pool2d(e2, 2))
+        b = self.bottle(e3)
+        d3 = self.up3(b)
+        d3 = torch.cat([d3, e2], dim=1)
+        d3 = self.dec3(d3)
+        d2 = self.up2(d3)
+        d2 = torch.cat([d2, e1], dim=1)
+        d2 = self.dec2(d2)
+        out = self.final(d2)
+        return torch.sigmoid(out)
+
+model = FusionNet().to(device)
+if os.path.exists(MODEL_PATH):
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+model.eval()
+print("Model Loaded Successfully")
+
 # --- Dataset Processing ---
 def create_triplets(video_path, output_dir, scene_threshold=30.0):
     """01_Data_Collection.ipynb"""
@@ -193,85 +230,9 @@ def generate_warped_dataset(img_dir, flow_dir, output_dir, device):
         cv2.imwrite(save_path, warped_img)
     print("✅ Frame warping dataset generated.")
 
-# --- Custom Model Hook ---
-def custom_model_interpolation(img1_bgr, img2_bgr, flow_fwd, flow_bwd, t):
-    """
-    HOOK FOR YOUR CUSTOM MODEL.
-    Inputs:
-        img1_bgr, img2_bgr: Source images (OpenCV BGR format)
-        flow_fwd, flow_bwd: Optical flow fields
-        t: Time ratio (0 to 1)
-    Output:
-        A single interpolated frame (OpenCV BGR format)
-    """
-    # DEFAULT BASELINE: Logic without a heavy CNN model.
-    # Replace the logic below with your model's forward pass.
-    
-    h, w = img1_bgr.shape[:2]
-    x, y = np.meshgrid(np.arange(w), np.arange(h))
-    
-    # Move pixels exactly according to the forward flow * time
-    map_x1 = (x + flow_fwd[..., 0] * t).astype(np.float32)
-    map_y1 = (y + flow_fwd[..., 1] * t).astype(np.float32)
-    warped_1 = cv2.remap(img1_bgr, map_x1, map_y1, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-    
-    # Move pixels exactly according to the backward flow * (1 - time)
-    map_x2 = (x + flow_bwd[..., 0] * (1 - t)).astype(np.float32)
-    map_y2 = (y + flow_bwd[..., 1] * (1 - t)).astype(np.float32)
-    warped_2 = cv2.remap(img2_bgr, map_x2, map_y2, cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-    
-    # Simple linear blend as fallback
-    alpha = t
-    blended = cv2.addWeighted(warped_1, 1 - alpha, warped_2, alpha, 0)
-    
-    return blended
-
-
-# --- Frame Generation / Inference ---
-def generate_intermediate_frames(img1_bgr, img2_bgr, fps, config, use_custom_model=True):
-    # model.eval()  # Removed
-    num_frames = max(1, fps - 1) 
-
-    h, w = img1_bgr.shape[:2]
-    
-    # Preprocess: make it pure black and white to avoid any "gray" or "soft" lines from blending
-    gray1 = cv2.cvtColor(img1_bgr, cv2.COLOR_BGR2GRAY)
-    gray2 = cv2.cvtColor(img2_bgr, cv2.COLOR_BGR2GRAY)
-    
-    # Threshold to make lines pure black and background pure white
-    _, thresh1 = cv2.threshold(gray1, 127, 255, cv2.THRESH_BINARY)
-    _, thresh2 = cv2.threshold(gray2, 127, 255, cv2.THRESH_BINARY)
-    
-    # Calculate DIS Optical flow at full resolution for maximum accuracy
-    dis = cv2.DISOpticalFlow_create(cv2.DISOPTICAL_FLOW_PRESET_ULTRAFAST)
-    flow_fwd = dis.calc(thresh1, thresh2, None)
-    flow_bwd = dis.calc(thresh2, thresh1, None)
-    
-    out_frames = []
-    ratios = np.linspace(0, 1, num_frames + 2)[1:-1]
-
-    for t in ratios:
-        if use_custom_model:
-            # Call the user's custom hook
-            frame = custom_model_interpolation(img1_bgr, img2_bgr, flow_fwd, flow_bwd, t)
-        else:
-            # Fallback simple binary warp
-            x, y = np.meshgrid(np.arange(w), np.arange(h))
-            map_x1 = (x + flow_fwd[..., 0] * t).astype(np.float32)
-            map_y1 = (y + flow_fwd[..., 1] * t).astype(np.float32)
-            warped_1 = cv2.remap(thresh1, map_x1, map_y1, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
-            map_x2 = (x + flow_bwd[..., 0] * (1 - t)).astype(np.float32)
-            map_y2 = (y + flow_bwd[..., 1] * (1 - t)).astype(np.float32)
-            warped_2 = cv2.remap(thresh2, map_x2, map_y2, cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=255)
-            combined_thresh = cv2.bitwise_and(warped_1, warped_2)
-            frame = cv2.cvtColor(combined_thresh, cv2.COLOR_GRAY2BGR)
-            
-        out_frames.append(frame)
-
-    return out_frames
-
-def generate_intermediate_frame(frameA_path, frameB_path, fps=2):
-    config = Config()
+def generate_intermediate_frame(frameA_path, frameB_path):
+    print("Model Loaded")
+    print("Running Inference")
     
     imgA = cv2.imread(frameA_path)
     imgB = cv2.imread(frameB_path)
@@ -280,7 +241,57 @@ def generate_intermediate_frame(frameA_path, frameB_path, fps=2):
         print("❌ Error: Images could not be read. Please check paths.")
         return None
 
-    return generate_intermediate_frames(imgA, imgB, fps, config)
+    # Save original shape for restoration
+    orig_shape = (imgA.shape[1], imgA.shape[0])
+    
+    # Resize to 256x256
+    imgA_resized = cv2.resize(imgA, (256, 256))
+    imgB_resized = cv2.resize(imgB, (256, 256))
+    
+    # Normalize to [0,1] and convert to tensor shape (1, 3, H, W)
+    tensorA = torch.from_numpy(imgA_resized).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+    tensorB = torch.from_numpy(imgB_resized).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+    tensorA = tensorA.to(device)
+    tensorB = tensorB.to(device)
+    
+    # Compute Farneback optical flow
+    grayA = cv2.cvtColor(imgA_resized, cv2.COLOR_BGR2GRAY)
+    grayB = cv2.cvtColor(imgB_resized, cv2.COLOR_BGR2GRAY)
+    flow_fwd = cv2.calcOpticalFlowFarneback(grayA, grayB, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    flow_bwd = cv2.calcOpticalFlowFarneback(grayB, grayA, None, 0.5, 3, 15, 3, 5, 1.2, 0)
+    
+    flow_fwd_tensor = torch.from_numpy(flow_fwd).permute(2, 0, 1).unsqueeze(0).float().to(device)
+    flow_bwd_tensor = torch.from_numpy(flow_bwd).permute(2, 0, 1).unsqueeze(0).float().to(device)
+    
+    with torch.no_grad():
+        # Warp both frames (at t=0.5)
+        warpedA = warp_tensor(tensorA, flow_fwd_tensor * 0.5, device)
+        warpedB = warp_tensor(tensorB, flow_bwd_tensor * 0.5, device)
+        
+        # Concatenate -> (1, 6, H, W)
+        input_tensor = torch.cat([warpedA, warpedB], dim=1)
+        
+        # Pass to model
+        output_tensor = model(input_tensor)
+        
+    print("Output Generated")
+    
+    # Output tensor to numpy
+    out_np = output_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    
+    # Multiply by 255 and convert to uint8
+    out_img = (out_np * 255.0).clip(0, 255).astype(np.uint8)
+    
+    # Restore original dimensions
+    out_img = cv2.resize(out_img, orig_shape)
+    
+    # 4. Ensure image is NOT blank
+    if np.sum(out_img) == 0 or np.mean(out_img) < 1.0:
+        # Fallback to simple blending if model returns blank
+        print("⚠️ Warning: Output was blank, falling back to simple blend.")
+        out_img = cv2.addWeighted(imgA, 0.5, imgB, 0.5, 0)
+
+    return out_img
 
 def run_inference(config, frame_a_path, frame_b_path, output_path):
     """06_generate_CUDA.ipynb - Single Frame Interpolation"""
@@ -291,15 +302,10 @@ def run_inference(config, frame_a_path, frame_b_path, output_path):
         print("❌ Error: Could not find one or both of your input files.")
         return
 
-    print("⏳ Generating single middle frame using Custom Hook...")
-    imgA = cv2.imread(frame_a_path)
-    imgB = cv2.imread(frame_b_path)
-    
-    if imgA is None or imgB is None:
-        print("❌ Error: Images could not be read. Please check paths.")
+    print("⏳ Generating single middle frame using FusionNet...")
+    middle_gen = generate_intermediate_frame(frame_a_path, frame_b_path)
+    if middle_gen is None:
         return
-
-    middle_gen = generate_intermediate_frames(imgA, imgB, 2, config)[0]
     
     if os.path.dirname(output_path):
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
